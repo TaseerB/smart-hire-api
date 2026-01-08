@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, ForeignKey, DateTime, Integer, Enum as SQLEnum, JSON, UniqueConstraint
+from sqlalchemy import String, ForeignKey, DateTime, Integer, Enum as SQLEnum, JSON, UniqueConstraint, Float, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -16,19 +16,118 @@ class ApplicationStatus(str, enum.Enum):
     HIRED = "hired"
 
 
+class JobStatus(str, enum.Enum):
+    DRAFT = "draft"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class PipelineStage(str, enum.Enum):
+    INTAKE = "intake"
+    NORMALIZATION = "normalization"
+    CLASSIFICATION = "classification"
+    SKILL_EXTRACTION = "skill_extraction"
+    KEYWORD_EXTRACTION = "keyword_extraction"
+    PERSISTENCE = "persistence"
+    VALIDATION = "validation"
+
+
+class StageStatus(str, enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(255), index=True)
-    description: Mapped[str] = mapped_column(String)
+    description: Mapped[str] = mapped_column(Text)
     requirements: Mapped[dict] = mapped_column(JSON, default=dict)
     hiring_stages: Mapped[dict] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(default=True)
+    
+    # Pipeline specific fields
+    status: Mapped[JobStatus] = mapped_column(SQLEnum(JobStatus), default=JobStatus.DRAFT, index=True)
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     applications: Mapped[List["Application"]] = relationship(back_populates="job")
+    pipeline_steps: Mapped[List["JobPipelineStep"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    sections: Mapped[List["JobSection"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    skills: Mapped[List["JobSkill"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    keywords: Mapped[List["JobKeyword"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    normalized_content: Mapped[Optional["JobNormalizedContent"]] = relationship(back_populates="job", cascade="all, delete-orphan", uselist=False)
+
+
+class JobPipelineStep(Base):
+    __tablename__ = "job_pipeline_steps"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    stage: Mapped[PipelineStage] = mapped_column(SQLEnum(PipelineStage))
+    status: Mapped[StageStatus] = mapped_column(SQLEnum(StageStatus), default=StageStatus.PENDING)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    job: Mapped["Job"] = relationship(back_populates="pipeline_steps")
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "stage", name="uq_job_stage"),
+    )
+
+
+class JobNormalizedContent(Base):
+    __tablename__ = "job_normalized_contents"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), unique=True)
+    content: Mapped[str] = mapped_column(Text)
+    
+    job: Mapped["Job"] = relationship(back_populates="normalized_content")
+
+
+class JobSection(Base):
+    __tablename__ = "job_sections"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    section_type: Mapped[str] = mapped_column(String(50)) # e.g., requirements, responsibilities
+    content: Mapped[str] = mapped_column(Text)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    source_offset: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    job: Mapped["Job"] = relationship(back_populates="sections")
+
+
+class JobSkill(Base):
+    __tablename__ = "job_skills"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    skill_name: Mapped[str] = mapped_column(String(100), index=True)
+    skill_type: Mapped[str] = mapped_column(String(20)) # technical, soft
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+
+    job: Mapped["Job"] = relationship(back_populates="skills")
+
+
+class JobKeyword(Base):
+    __tablename__ = "job_keywords"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    keyword: Mapped[str] = mapped_column(String(100), index=True)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+
+    job: Mapped["Job"] = relationship(back_populates="keywords")
 
 
 class Candidate(Base):

@@ -40,6 +40,9 @@ async def read_job(
     return job
 
 
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+
+
 @router.patch("/{job_id}", response_model=Job)
 async def update_job(
     *,
@@ -52,3 +55,22 @@ async def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@router.post("/{job_id}/publish", status_code=status.HTTP_202_ACCEPTED)
+async def publish_job(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    service = JobService(db)
+    job = await service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # We pass a new session to the background task if needed, but for now 
+    # we'll use the service which can handle its own db lifecycle or share.
+    # NOTE: In production, ensure the background task has its own session.
+    background_tasks.add_task(service.publish_job, job_id)
+    
+    return {"message": "Job publishing pipeline started", "job_id": job_id}
