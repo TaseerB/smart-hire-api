@@ -1,5 +1,5 @@
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.application import Application, ApplicationCreate, ApplicationUpdate
@@ -11,12 +11,13 @@ router = APIRouter()
 @router.post("/{candidate_id}/apply", response_model=Application, status_code=status.HTTP_201_CREATED)
 async def apply_to_job(
     candidate_id: int,
+    background_tasks: BackgroundTasks,
     *,
     db: AsyncSession = Depends(get_db),
     application_in: ApplicationCreate
 ) -> Any:
     service = ApplicationService(db)
-    return await service.apply_for_job(candidate_id, application_in)
+    return await service.apply_for_job(candidate_id, application_in, background_tasks)
 
 
 @router.get("/{application_id}", response_model=Application)

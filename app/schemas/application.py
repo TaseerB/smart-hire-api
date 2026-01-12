@@ -11,6 +11,7 @@ class ApplicationBase(BaseModel):
 
 class ApplicationCreate(BaseModel):
     job_id: int
+    idempotency_key: str
 
 
 class ApplicationUpdate(BaseModel):

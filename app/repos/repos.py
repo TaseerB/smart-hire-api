@@ -32,6 +32,11 @@ class ApplicationRepo(BaseRepo[Application]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
     
+    async def get_by_idempotency_key(self, key: str) -> Optional[Application]:
+        query = select(Application).where(Application.idempotency_key == key)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+    
     async def get_by_candidate(self, candidate_id: int) -> List[Application]:
         query = select(Application).where(Application.candidate_id == candidate_id)
         result = await self.db.execute(query)

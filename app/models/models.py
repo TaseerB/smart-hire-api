@@ -149,12 +149,54 @@ class Application(Base):
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"))
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
     status: Mapped[ApplicationStatus] = mapped_column(SQLEnum(ApplicationStatus), default=ApplicationStatus.PENDING)
+    
+    # Workflow specific fields
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    current_stage_id: Mapped[Optional[int]] = mapped_column(ForeignKey("hiring_stages.id"), nullable=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     candidate: Mapped["Candidate"] = relationship(back_populates="applications")
     job: Mapped["Job"] = relationship(back_populates="applications")
+    current_stage: Mapped[Optional["HiringStage"]] = relationship()
+    transitions: Mapped[List["ApplicationStageTransition"]] = relationship(back_populates="application", cascade="all, delete-orphan")
+    scores: Mapped[List["CandidateScore"]] = relationship(back_populates="application", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("candidate_id", "job_id", name="uq_candidate_job"),
     )
+
+
+class HiringStage(Base):
+    __tablename__ = "hiring_stages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    is_default: Mapped[bool] = mapped_column(default=False)
+
+
+class ApplicationStageTransition(Base):
+    __tablename__ = "application_stage_transitions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"))
+    from_stage_id: Mapped[Optional[int]] = mapped_column(ForeignKey("hiring_stages.id"), nullable=True)
+    to_stage_id: Mapped[int] = mapped_column(ForeignKey("hiring_stages.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    application: Mapped["Application"] = relationship(back_populates="transitions")
+
+
+class CandidateScore(Base):
+    __tablename__ = "candidate_scores"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"))
+    score_type: Mapped[str] = mapped_column(String(50)) # e.g., skill-match, relevance
+    score: Mapped[float] = mapped_column(Float)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    application: Mapped["Application"] = relationship(back_populates="scores")
